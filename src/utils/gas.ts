@@ -71,7 +71,7 @@ const hashMap: IGasHashMap = {
   '/cosmos.staking.v1beta1.MsgEditValidator': 142,
   '/cosmos.staking.v1beta1.MsgUndelegate': 142
 }
-const baseRate = 56
+const baseRate = 75
 
 /**
  * Generates gas total estimate from list of Tx instances.

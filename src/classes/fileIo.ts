@@ -57,24 +57,25 @@ export default class FileIo implements IFileIo {
   private readonly walletRef: IWalletHandler
   private readonly qH: IQueryHandler
   private availableProviders: IMiner[]
-  private currentProvider: IMiner
+  private activeProviders: IMiner[]
 
   /**
    * Receives properties from trackIo() to instantiate FileIo.
    * @param {IWalletHandler} wallet - WalletHandler instance for QueryHandler and ProtoHandler management.
    * @param {IMiner[]} providers - Array of filtered Provider details to cycle through for uploads.
-   * @param {IMiner} currentProvider - Starting active upload Provider.
+   * @param {IMiner} activeProviders - Starting active upload Provider.
    * @private
    */
   private constructor(
     wallet: IWalletHandler,
     providers: IMiner[],
-    currentProvider: IMiner
+    activeProvider: IMiner
   ) {
     this.walletRef = wallet
     this.qH = wallet.getQueryHandler()
     this.availableProviders = providers
-    this.currentProvider = currentProvider
+    this.activeProviders = [activeProvider]
+    //this.activeProviders = [activeProviders]
   }
 
   /**
@@ -126,7 +127,15 @@ export default class FileIo implements IFileIo {
    * @returns {IMiner}
    */
   getCurrentProvider(): IMiner {
-    return this.currentProvider
+    return this.activeProviders[0]
+  }
+
+  /**
+   * Expose active Provider for uploads.
+   * @returns {IMiner}
+   */
+  getCurrentProviders(): IMiner[] {
+    return this.activeProviders
   }
 
   /**
@@ -142,7 +151,15 @@ export default class FileIo implements IFileIo {
    * @param {IMiner} toSet
    */
   forceProvider(toSet: IMiner): void {
-    this.currentProvider = toSet
+    this.activeProviders = [toSet]
+  }
+
+  /**
+   * Set active Provider for uploads.
+   * @param {IMiner} toSet
+   */
+  forceProviders(toSet: IMiner[]): void {
+    this.activeProviders = toSet
   }
 
   /**
@@ -162,8 +179,8 @@ export default class FileIo implements IFileIo {
    * @returns {Promise<void>}
    */
   async shuffle(): Promise<void> {
-    this.currentProvider =
-      this.availableProviders[getRandomIndex(this.availableProviders.length)]
+    this.activeProviders =
+      [this.availableProviders[getRandomIndex(this.availableProviders.length)]]
   }
 
   /**
@@ -177,8 +194,8 @@ export default class FileIo implements IFileIo {
       await getProviders(this.qH),
       this.walletRef.traits.chainId
     )
-    this.currentProvider =
-      this.availableProviders[getRandomIndex(this.availableProviders.length)]
+    this.activeProviders =
+      [this.availableProviders[getRandomIndex(this.availableProviders.length)]]
   }
 
   /**
@@ -377,7 +394,7 @@ export default class FileIo implements IFileIo {
 
         const memo = ''
         await pH
-          .debugBroadcaster(readyToBroadcast, { memo, step: false })
+          .debugBroadcaster(readyToBroadcast, {memo, step: false })
           .catch((err: Error) => {
             throw err
           })
@@ -1007,22 +1024,26 @@ export default class FileIo implements IFileIo {
     sender: string,
     file: File
   ): Promise<IProviderModifiedResponse> {
-    if (!this.walletRef.traits)
-      throw new Error(signerNotEnabled('FileIo', 'tumbleUpload'))
-    while (this.availableProviders.length > 0) {
-      const { ip } = this.currentProvider
-      console.log('Current Provider:', ip)
-      const url = `${ip.replace(/\/+$/, '')}/upload`
+    if (!this.walletRef.traits) throw new Error(signerNotEnabled('FileIo', 'tumbleUpload'));
+  
+    const chunkSize = 5; // Number of providers to try at a time
+    const activeProviders = this.activeProviders;
+    const totalProviders = activeProviders.length;
+  
+    for (let i = 0; i < totalProviders; i += chunkSize) {
+      const chunk = activeProviders.slice(i, i + chunkSize);
+      const operations = chunk.map(provider => {
+        const url = `${provider.ip.replace(/\/+$/, '')}/upload`;
+        return doUpload(url, sender, file);
+      });
+  
       try {
-        return await doUpload(url, sender, file)
+        return await Promise.any(operations);
       } catch (err) {
-        console.warn(err)
-        await this.clearProblems(ip)
-        continue
+        console.log("Trying a different set of providers.");
       }
     }
-    console.log('Provider Options Exhausted')
-    return { fid: [''], cid: '' }
+    throw new Error("Failed to upload files.");
   }
 
   /**
@@ -1115,7 +1136,8 @@ async function doUpload(
       return resp.json()
     })
     .then((resp) => {
-      return { fid: [resp.fid], cid: resp.cid }
+      if (!resp.cid) throw "ERROR"
+      else return { fid: [resp.fid], cid: resp.cid }
     })
     .catch((err) => {
       throw err

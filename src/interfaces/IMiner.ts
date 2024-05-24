@@ -6,4 +6,5 @@ export default interface IMiner {
   creator: string
   keybaseIdentity: string
   authClaimers: string[]
+  ping?: number
 }
