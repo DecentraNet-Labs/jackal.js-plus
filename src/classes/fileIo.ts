@@ -1043,7 +1043,7 @@ export default class FileIo implements IFileIo {
         console.log("Trying a different set of providers.");
       }
     }
-    throw new Error("Failed to upload files.");
+    return { fid: [], cid: '' }
   }
 
   /**
